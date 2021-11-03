@@ -57,7 +57,7 @@ y = label_dog_cat.([dogs; cats]);
 ## LOADING SCIKITLEARN 
 @sk_import svm: LinearSVC
 @sk_import model_selection: RepeatedStratifiedKFold 
-#@sk_import model_selection: cross_val_score
+@sk_import model_selection: cross_val_score
 import ScikitLearn: CrossValidation
 svm = LinearSVC(C=.0001, loss="squared_hinge", penalty="l2", multi_class="ovr", random_state = 35552, max_iter=2000)
 #svm = LinearSVC(C=.01, loss="hinge", penalty="l2", multi_class="ovr", random_state = 35552, max_iter=2000)
