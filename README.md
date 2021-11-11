@@ -42,57 +42,25 @@ include((@__DIR__)*"/utils.jl")
 
 ```
 
-NB: plan to deprecate this silly python code part. 
-
-It will be useful to define some utilities here. I'm going to use a tiny bit of existing Python code to preprocess images so they are normalized to the average image in the ImageNet source database. Specifically, Tensorflow libraries use the means of the ImageNet data to rescale images prior to processing. Julia allows easy interoperability with Python, so below we'll call Python to load some preprocessing functions. If you get an error that these libraries are not installed, check out the [Tensorflow page](https://www.tensorflow.org/install/pip#system-install) for guidance on installation. 
+It will be useful to define some utilities here. I'm going to use a tiny bit of code inspired by the `preprocess_input` function from tensorflow to preprocess images. It will modify them so they are normalized to the average pixel in the ImageNet source database. 
 
 Below, the `py_preprocess_input` command copies an image and executes the preprocessing function. We then call that function on an empty array to generate the values that are used to normalize each image with Python. That is, the 'preprocess_input' function in Python normalizes images based on the average pixel intensity of the ImageNet dataset. Replicating this process improves performance of the image processing. 
 
 ```julia
-
-py"""
-import numpy as np
-from tensorflow.keras.applications import ResNet50
-from tensorflow.keras.applications.vgg19 import VGG19
-from tensorflow.keras.models import Model
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.vgg19 import preprocess_input
-"""
-
-function py_process_input(image_array)
-    image_array_cx = deepcopy(image_array)
-    image_array_cx .= py"preprocess_input"(image_array_cx)
-    return image_array_cx
+function jimage_net_scale(dx::AbstractArray)
+    imagenet_means = [-103.93899999996464, -116.77900000007705, -123.67999999995286]
+    #dx = copy(x)
+    # swap R and G channels like python does - only during channels_last 
+    dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
+    dx[:, :, :, 1] .+= imagenet_means[1]
+    dx[:, :, :, 2] .+= imagenet_means[2]
+    dx[:, :, :, 3] .+= imagenet_means[3]
+    #return cor(collect(Iterators.flatten(dx)),collect(Iterators.flatten(py_scaled_image)))
+    return(dx)
 end
-
-### JULIA FUNCTIONS (first draws on imagenet means )
-
-imagenet_means = mean(py_process_input(zeros(224, 224, 3)), dims=(1, 2));
 ```
 
-
-```julia
-    # Function to return a function that scales appropriately. 
-function image_net_gen_scale(imagenet_means)
-    #imagenet_means = [103.93899999996464, 116.77900000007705, 123.67999999995286]
-    function pyscale(x::AbstractArray)
-        dx = copy(x)
-        # swap R and G channels like python does - only during channels_last 
-        dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
-        dx[:, :, :, 1] .+= imagenet_means[1]
-        dx[:, :, :, 2] .+= imagenet_means[2]
-        dx[:, :, :, 3] .+= imagenet_means[3]
-        #return cor(collect(Iterators.flatten(dx)),collect(Iterators.flatten(py_scaled_image)))
-        return(dx)
-    end
-end
-
-# The actual function that will be used 
-image_net_scale = image_net_gen_scale(imagenet_means)
-
-```
-
-We create a pipeline that will power the image processing of the dog and cat images. The @pipe macro allows us to pass the results of one function straight to the next via a series of anonymous functions. In series we load the image, resize to a square 224 x 224, convert to an array with the `channelview` function, then we swap the order of the dimensions, scale the image, and pass the result through the neural model. Notice that this function is a 
+We now create a pipeline that will power the image processing of the dog and cat images. The @pipe macro allows us to pass the results of one function straight to the next via a series of anonymous functions. In series we load the image, resize to a square 224 x 224, convert to an array with the `channelview` function, then we swap the order of the dimensions, scale the image, and pass the result through the neural model. The 224 resizing is so that the image is of a compatible size with the neural network model we're going to use. 
 
 ```julia
 function create_bottleneck_pipeline(neural_model)
@@ -146,7 +114,7 @@ function capture_dogs_cats(paths::Array{String, 1})
 end
 ```
 
-Now, we're ready to pass the images through the lower levels of the neural network. Let's be REAL stingy with data - how about only 100 cats and dogs? Let's see how the model does against this insanely small amount of data. 
+Now, we're ready to pass the images through the lower levels of the neural network. As I said earlier, we're going to be REAL stingy with data - only 1000 cats and dogs. Let's see how the model does against this small amount of data. 
 
 We capture the dog and cat features, then we grab the labels from the file names in the dog/cat paths. 
 
@@ -160,11 +128,11 @@ y = label_dog_cat.([dogs[1:100]; cats[1:100]]);
 
 ```
 
-Finally, we train our Support Vector Machine (SVM). If you don't know what an SVM is, [the Wikipedia entry](https://en.wikipedia.org/wiki/Support-vector_machine) for SVM's is actually quite good. The essence of the SVM is that it determines a 'support vector' that maximizes the 'distance' between the cat and dog classes we're trying to classify. The support vector is the subset of the embeddings which display the maximum difference between the 'cat' and 'dog' examples in the data. 
+Now, it's time to train our Support Vector Machine (SVM). The SVM will leverage these embeddings to actually classify images. If you don't know what an SVM is, [the Wikipedia entry](https://en.wikipedia.org/wiki/Support-vector_machine) for SVM's is actually quite good. The essence of the SVM is that it determines a 'support vector' that maximizes the 'distance' between the cat and dog classes we're trying to classify. The support vector is the subset of the embeddings which display the maximum difference between the 'cat' and 'dog' examples in the data. 
 
-And the results are not bad! Keep in mind the data are perfectly balanced 50/50 and we used an absurdly small amount of data. 90% accuracy on such a small dataset is nothing to sneeze at.
+We will train the model and use K-fold cross-validation to pump out the results. K-fold cross-validation essentially cuts our training data into equally-sized slices and reserves one of them for evaluating the model's performance. Then we'll spit out the model performance on those reserved slices. 
 
-There are a number of places to go from here. The next thing to try is retraining the upper layers. That would yield higher accuracy, but we'll save that for another post. 
+And the results are not bad! Keep in mind the cat/dog classes are perfectly balanced 50/50, and we used an absurdly small amount of data. 
 
 ```julia 
 # SVM definition 
@@ -174,3 +142,5 @@ RSK = RepeatedStratifiedKFold(n_splits=6, n_repeats=1, random_state=3403)
 out = cross_val_score(svm, dog_cat_features, y, cv = RSK.split(dog_cat_features,  y))
 
 ```
+
+There are a number of things to learn from here. The next thing to try is retraining the upper layers. That would yield higher accuracy, but we'll save that for another post. 
