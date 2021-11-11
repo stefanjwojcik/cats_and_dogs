@@ -62,6 +62,19 @@ end
 # The actual function that will be used 
 image_net_scale = image_net_gen_scale(imagenet_means)
 
+function jimage_net_scale(dx::AbstractArray)
+    imagenet_means = [-103.93899999996464, -116.77900000007705, -123.67999999995286]
+    #dx = copy(x)
+    # swap R and G channels like python does - only during channels_last 
+    dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
+    dx[:, :, :, 1] .+= imagenet_means[1]
+    dx[:, :, :, 2] .+= imagenet_means[2]
+    dx[:, :, :, 3] .+= imagenet_means[3]
+    #return cor(collect(Iterators.flatten(dx)),collect(Iterators.flatten(py_scaled_image)))
+    return(dx)
+end
+
+
 # utility function to flatten arrays to compare them 
 function cflat(x::AbstractArray)
     collect(Iterators.flatten(x))
