@@ -58,6 +58,11 @@ function jimage_net_scale(dx::AbstractArray)
     #return cor(collect(Iterators.flatten(dx)),collect(Iterators.flatten(py_scaled_image)))
     return(dx)
 end
+
+# function to flatten an array 
+function cflat(x::AbstractArray)
+    collect(Iterators.flatten(x))
+end
 ```
 
 We now create a pipeline that will power the image processing of the dog and cat images. The @pipe macro allows us to pass the results of one function straight to the next via a series of anonymous functions. In series we load the image, resize to a square 224 x 224, convert to an array with the `channelview` function, then we swap the order of the dimensions, scale the image, and pass the result through the neural model. The 224 resizing is so that the image is of a compatible size with the neural network model we're going to use. 
@@ -124,7 +129,7 @@ dog_cat_features = capture_dogs_cats(vcat(dogs[1:1000], cats[1:1000]));
 
 # create ternary function that can be broadcast 
 label_dog_cat(path) = contains(path, r"cat") ? "cat" : "dog";
-y = label_dog_cat.([dogs[1:100]; cats[1:100]]);
+y = label_dog_cat.([dogs[1:1000]; cats[1:1000]]);
 
 ```
 
