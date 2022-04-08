@@ -1,72 +1,33 @@
 ## UTILS FOR IMAGE PROCESSING with RESNET50 and FLUX 
 
-# PYTHON MODULES REQUIRED  
-py"""
-import numpy as np
-from tensorflow.keras.applications import ResNet50
-from tensorflow.keras.applications.vgg19 import VGG19
-from tensorflow.keras.models import Model
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.vgg19 import preprocess_input
-"""
+using Metalhead
+using Flux
+using Images
+#using OffsetArrays
+#using ImageMagick
+# MUST: add CUDA@1.3.3
+using CUDA
+using Pipe
+using ProgressMeter
+#using PyCall
 
-# This is a PYTHON-BASED PIPELINE FOR COMPARISON 
-py"""
-#def get_features_from_image(mymod, image_path=None):
-#    img = image.load_img(image_path, target_size=(224, 224))
-#    x = image.img_to_array(img)
-#    x = np.expand_dims(x, axis=0)
-#    x = preprocess_input(x)
-#    predictions = mymod.predict(x)
-#    features_raw = np.squeeze(predictions)
-#    return(x)
-
-_ = VGG19(weights='imagenet')
-nn_model = Model(inputs=_.input, outputs=_.get_layer('fc2').output)
-"""
-
-# Make the python functions available in base Julia 
-#function pyproc(x)
-#    # python 
-#    xc = deepcopy(x)
-#    xc = py"get_features_from_image"(py"nn_model", xc)
-#    return xc
-#end
-
-# Make this python process available in Julia 
-function py_process_input(image_array)
-    image_array_cx = deepcopy(image_array)
-    image_array_cx .= py"preprocess_input"(image_array_cx)
-    return image_array_cx
-end
-
-### JULIA FUNCTIONS (first draws on imagenet means )
-
-imagenet_means = mean(py_process_input(zeros(224, 224, 3)), dims=(1, 2))
-
-    # Function to return a function that scales appropriately. 
-function image_net_gen_scale(imagenet_means)
-    #imagenet_means = [103.93899999996464, 116.77900000007705, 123.67999999995286]
-    function pyscale(x::AbstractArray)
-        dx = copy(x)
-        # swap R and G channels like python does - only during channels_last 
-        dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
-        dx[:, :, :, 1] .+= imagenet_means[1]
-        dx[:, :, :, 2] .+= imagenet_means[2]
-        dx[:, :, :, 3] .+= imagenet_means[3]
-        #return cor(collect(Iterators.flatten(dx)),collect(Iterators.flatten(py_scaled_image)))
-        return(dx)
-    end
+# utility function to flatten arrays to compare them 
+function cflat(x::AbstractArray)
+    collect(Iterators.flatten(x))
 end
 
 # The actual function that will be used 
-image_net_scale = image_net_gen_scale(imagenet_means)
-
-function jimage_net_scale(dx::AbstractArray)
+"""
+This is a function to scale images to the ImageNet means. The purpose is to scale images to match ImageNet. 
+Python also switches the 1st and 3rd RBG channels sometimes, so this function does that too. 
+"""
+function jimage_net_scale!(dx::AbstractArray, channels_last=false)
     imagenet_means = [-103.93899999996464, -116.77900000007705, -123.67999999995286]
     #dx = copy(x)
     # swap R and G channels like python does - only during channels_last 
-    dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
+    if channels_last
+        dx[:, :, :, 1], dx[:, :, :, 3] = dx[:, :, :, 3], dx[:, :, :, 1]
+    end
     dx[:, :, :, 1] .+= imagenet_means[1]
     dx[:, :, :, 2] .+= imagenet_means[2]
     dx[:, :, :, 3] .+= imagenet_means[3]
@@ -74,8 +35,53 @@ function jimage_net_scale(dx::AbstractArray)
     return(dx)
 end
 
+"""
+This is the function that takes a function and returns a function for processing each image.  
+"""
+function create_bottleneck_pipeline(neural_model)
+    function capture_bottleneck(image_path)
+        out = @pipe load(image_path) |> #
+        x -> imresize(x, 224, 224) |> # resize the image to imagenet dims
+        x -> Float32.(channelview(x) * 255) |> # drop to an array
+        x -> permutedims(x, [2, 3, 1]) |> # swap ordering of dimensions 
+        x -> reshape(x, (1, 224, 224, 3) ) |> # Python style for comparison sake 
+        x -> jimage_net_scale!(x) |>
+        #x -> reshape(x, (224, 224, 3, 1)) |>
+        x -> cflat(neural_model(x))
+        return out
+    end
+end
 
-# utility function to flatten arrays to compare them 
-function cflat(x::AbstractArray)
-    collect(Iterators.flatten(x))
+#nn_model = VGG19().layers[1:25];
+#capture_bottleneck = create_bottleneck_pipeline(nn_model);
+
+
+# TODO: Fix this function, cut out the face segmentation for separate step 
+function generate_resnet_features(image_paths)
+    # Progress Meter just to see where we are in the process 
+    p = ProgressMeter.Progress(length(image_paths)) # total of iterations, by 1
+    ProgressMeter.next!(p)
+    failed_cases = String[]
+
+    # Creating empty arrays to store the results 
+    features_out = CUDA.zeros(Float32, 2048, length(image_paths)) # create base 
+
+    for (i, img_key) in enumerate(keys(image_paths))
+        #printstyled(img_key*" \n", color=:green)
+        try
+            raw_img = load(img_key)
+            img_features = capture_bottleneck(raw_img)
+            @inbounds features_out[:, i] .= img_features[:, 1]
+        catch
+            #@warn "$img_key failed"
+            push!(failed_cases, img_key)
+            @inbounds features_out[:, i] .= CUDA.zeros(2048, )
+        end
+
+        ProgressMeter.next!(p)
+    end
+    # Write out the files
+    out = (features_out, failed_cases)
+    printstyled("DONE \n", color=:blue)
+    return out
 end

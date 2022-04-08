@@ -1,51 +1,24 @@
 # Dogs and Cats 
-using ScikitLearn
-using Metalhead
-using Flux
-using Images
-using ImageTransformations
-using CUDA
-using PyCall
-using Pipe
-using ProgressMeter
-using Statistics 
-using StatsBase
+include((@__DIR__)*"/utils.jl")
 CUDA.allowscalar(false)
 
-include((@__DIR__)*"/utils.jl")
 
-"""
-Before we can do any image modeling, we need to create a pipeline to process each image. In this pipeline, we will load the image into memory, resize it, reshape it to fit in our model, and finally generate features from it. 
-"""
-function create_bottleneck_pipeline(neural_model)
-    function capture_bottleneck(image_path)
-        out = @pipe load(image_path) |> #
-        x -> imresize(x, 224, 224) |> #
-        x -> channelview(x) * 255 |> #
-        x -> permutedims(x, [2, 3, 1]) |> #
-        x -> reshape(x, (1, 224, 224, 3) ) |> # Python style for comparison sake 
-        x -> image_net_scale(x) |>
-        x -> reshape(x, (224, 224, 3, 1)) |>
-        x -> cflat(neural_model(x))
-        return out
-    end
-end
+# Define Model and adjoining function 
+nn_model = VGG19().layers[1:25];
+capture_bottleneck = create_bottleneck_pipeline(nn_model);
+
 
 # create dataset for training and cross-validation 
 cats = "train/".*StatsBase.sample(readdir("train/")[contains.(readdir("train/"), r"cat")], 1000, replace=false)
 dogs = "train/".*StatsBase.sample(readdir("train/")[contains.(readdir("train/"), r"dog")], 1000, replace=false)
 train_paths = [cats; dogs]
 
-# The Model and adjoining function 
-nn_model = VGG19().layers[1:25];
-capture_bottleneck = create_bottleneck_pipeline(nn_model);
-
 # create cat and dog features 
 dog_features = @time capture_bottleneck.(dogs);
 cat_features = @time capture_bottleneck.(cats);
 
 # create a dataset for training 
-allfeatures = zeros(Float32, 2000, 4096);
+allfeatures = zeros(Float32, 2000, 2048);
 [allfeatures[i, :] .= x for (i,x) in enumerate(vcat(dog_features, cat_features))];
 
 # create ternary function that can be broadcast 
