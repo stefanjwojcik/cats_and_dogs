@@ -46,7 +46,7 @@ function create_bottleneck_pipeline(neural_model)
         x -> permutedims(x, [2, 3, 1]) |> # swap ordering of dimensions 
         x -> reshape(x, (1, 224, 224, 3) ) |> # Python style for comparison sake 
         x -> jimage_net_scale!(x) |>
-        #x -> reshape(x, (224, 224, 3, 1)) |>
+        x -> reshape(x, (224, 224, 3, 1)) |>
         x -> cflat(neural_model(x))
         return out
     end
