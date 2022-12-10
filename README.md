@@ -6,8 +6,7 @@ The core idea of transfer learning is that the lower layers of a pretrained netw
 
 Neural networks trained on the ImageNet dataset - perhaps the most famous computer vision dataset - are trained with millions of images to classify a thousand common things. Imagenet includes things like trucks, elephants, balloons, and strawberries. This kind of data provides a huge amount of visual information that can be captured by the neural network model. Therefore, there are a huge number of abstract features represented which we can leverage rather cheaply. 
 
-You will see  [tutorials](https://fluxml.ai/tutorials/2020/10/18/transfer-learning.html) that retrain the upper layers of a pretrained neural network for a specific task. We will use a different but related strategy for modeling - we will extract the output of the penultimate layer of a pretrained deep neural network and uses itmany in a separate machine learning model - in this case a Support Vector Machine. We do this for two reasons. First, this method doesn't require a GPU (although having one will make some parts go faster). Second, it's slightly faster to extract the penultimate layer and pass it to an SVM than to retrain the upper layers. 
-
+You will see  [tutorials](https://fluxml.ai/tutorials/2020/10/18/transfer-learning.html) that retrain the upper layers of a pretrained neural network for a specific task. We will initially use a different but related strategy for modeling - we will extract the output of the penultimate layer of a pretrained deep neural network and uses itmany in a separate machine learning model - in this case a Support Vector Machine. We do this for two reasons. First, this method doesn't require a GPU (although having one will make some parts go faster). Second, it's slightly faster to extract the penultimate layer and pass it to an SVM than to retrain the upper layers. 
 
 ## Prerequisites 
 
